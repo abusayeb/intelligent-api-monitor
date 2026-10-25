@@ -26,4 +26,13 @@ module.exports = {
     batchSize: toNumber(process.env.AI_BATCH_SIZE, 10),
     concurrency: toNumber(process.env.AI_CONCURRENCY, 2),
   },
+  email: {
+    host: process.env.SMTP_HOST || '',
+    port: toNumber(process.env.SMTP_PORT, 587),
+    user: process.env.SMTP_USER || '',
+    pass: process.env.SMTP_PASS || '',
+    from: process.env.REPORT_EMAIL_FROM || process.env.SMTP_USER || '',
+    to: process.env.REPORT_EMAIL_TO || '',
+    intervalMinutes: toNumber(process.env.REPORT_INTERVAL_MINUTES, 0),
+  },
 };

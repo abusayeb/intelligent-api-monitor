@@ -3,6 +3,7 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const { connectDb, disconnectDb } = require('./db');
 const { requeuePending } = require('./ai');
+const { startReportSchedule } = require('./services/emailReport');
 
 let server;
 
@@ -19,6 +20,7 @@ async function start() {
   });
 
   requeuePending().catch((err) => logger.error(`Could not requeue pending alerts: ${err.message}`));
+  startReportSchedule();
 }
 
 function shutdown(signal) {

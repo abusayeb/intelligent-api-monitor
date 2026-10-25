@@ -1,35 +1,96 @@
 # API Monitor
 
-Watches responses from external APIs, flags anything that looks wrong (slow responses,
-failed requests, missing or empty data), stores it in MongoDB and uses Gemini to turn it
-into alerts people can read.
+Watches responses from external APIs (patient data, appointments, billing...), flags anything
+that looks wrong, stores it in MongoDB and uses Gemini to turn it into alerts people can
+actually read. A React dashboard shows the active alerts.
 
-> Work in progress. The dashboard is still being added.
+- **Backend:** Node.js, Express 5, Mongoose, Winston
+- **AI:** Google Gemini (`@google/genai`)
+- **Database:** MongoDB
+- **Frontend:** React + Vite
+- **Email (optional):** Nodemailer
 
-## Running the backend
+## Architecture
 
-Requires Node 18+ and MongoDB (local install, Docker, or a free Atlas cluster).
-
-```bash
-cd server
-cp .env.example .env      # set MONGODB_URI and GEMINI_API_KEY
-npm install
-npm run dev
+```
+  JSON file ──┐                      ┌──────────────── server ─────────────────┐
+ (npm script) │                      │                                         │
+              ├──► POST /monitor ──► │ normalize ─► detect ─► save to MongoDB  │
+  any client ─┘                      │                          │              │
+                                     │              template text (instant)    │
+                                     │                          │              │
+                                     │                 alert queue ──► Gemini  │
+                                     │                          │   (batched)  │
+                                     │                  AI text saved          │
+                                     └──────────────────────────┬──────────────┘
+                                                                │
+          React dashboard  ◄──── GET /alerts, /alerts/summary ──┘
+                           ────► PATCH /alerts/:id/resolve
+                           ────► POST /alerts/report ──► email
 ```
 
-Quickest way to get a local MongoDB if you have Docker:
+```
+server/
+  src/
+    services/   normalizer, detector (rules), anomalyStore (db writes), monitorService (pipeline), emailReport
+    ai/         geminiClient, prompt, templateAlert (fallback), alertQueue, aiAlerts
+    controllers/ routes/ middleware/ models/ utils/
+  scripts/run-file.js   static JSON input
+  data/sample-responses.json
+  test/
+client/
+  src/  App.jsx, components/, api.js
+```
+
+## Setup
+
+You need **Node 20.19+** (or 22.12+) and **MongoDB**: a local install, Docker, or a free
+[Atlas](https://www.mongodb.com/atlas) cluster.
+
+If you have Docker, this starts MongoDB locally:
 
 ```bash
 docker run -d -p 27017:27017 --name api-monitor-mongo mongo:7
 ```
 
-Server runs on `http://localhost:4000` by default.
+### Backend
 
-## API
+```bash
+cd server
+cp .env.example .env
+npm install
+npm run dev
+```
 
-### `POST /monitor`
+In `.env`, set at least:
 
-Send a single response or an array of them:
+- `MONGODB_URI`: leave the default for local mongo, or paste your Atlas string
+- `GEMINI_API_KEY`: free key from https://aistudio.google.com/apikey (without it, alerts use rule-based text)
+
+The server runs on http://localhost:4000.
+
+### Frontend
+
+In a second terminal:
+
+```bash
+cd client
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. In development, Vite forwards `/api/*` to the backend.
+
+### Try it
+
+Either click **Send test data** in the dashboard, or run the sample file:
+
+```bash
+cd server
+npm run monitor:file -- data/sample-responses.json
+```
+
+Or use curl:
 
 ```bash
 curl -X POST http://localhost:4000/monitor \
@@ -37,93 +98,39 @@ curl -X POST http://localhost:4000/monitor \
   -d '[{"api_name":"AppointmentAPI","response_time_ms":5500,"status_code":500,"records_returned":0}]'
 ```
 
-The response tells you what was detected and what happened in the db:
-
-```json
-{
-  "received": 1,
-  "healthy": 0,
-  "anomalies": [{ "api_name": "AppointmentAPI", "severity": "critical", "issues": [...], "alert_id": "..." }],
-  "rejected": [],
-  "stored": { "opened": 1, "updated": 0, "resolved": 0 }
-}
-```
-
-You can also run a JSON file through the same pipeline (results are saved too):
+### Tests
 
 ```bash
-npm run monitor:file -- data/sample-responses.json
+cd server
+npm test
 ```
 
-### `GET /alerts`
+Tests use an in-memory MongoDB and a fake Gemini client, so they need no setup and make no
+API calls. The first run downloads a MongoDB binary, which takes a moment.
 
-Active alerts, most severe first. Query params:
+## API
 
-| Param | Example | Default |
-|-------|---------|---------|
-| `status` | `active`, `resolved`, `all` | `active` |
-| `severity` | `critical,high` | all |
-| `api` | `BillingAPI` | all |
-| `limit` / `page` | `20` / `2` | `50` / `1` |
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/monitor` | Submit one API response or an array (max `MAX_BATCH_SIZE`) |
+| GET | `/alerts` | Active alerts, worst first. Query: `status=active\|resolved\|all`, `severity=critical,high`, `api=Name`, `limit`, `page` |
+| GET | `/alerts/summary` | Active count per severity, resolved in the last 24h |
+| GET | `/alerts/:id` | One alert |
+| PATCH | `/alerts/:id/resolve` | Resolve an alert by hand |
+| POST | `/alerts/report` | Email a digest of active alerts now |
+| GET | `/health` | Server and database status |
 
-### Other endpoints
-
-- `GET /alerts/summary` - active counts per severity, resolved in last 24h
-- `GET /alerts/:id` - single alert
-- `PATCH /alerts/:id/resolve` - mark an alert as resolved manually
-- `GET /health` - server and db status
-
-## How alerts work
-
-Each API has at most one **active** alert at a time (enforced by a partial unique index).
-
-- API fails and has no active alert: a new alert is opened
-- API fails again while its alert is active: the same alert is updated (`occurrences`, `last_seen`, latest issues and metrics)
-- API reports a healthy response: its active alert is resolved automatically
-- Alerts can also be resolved by hand through the API
-
-Inside a batch, entries for the same API are processed in order, so fail → recover → fail
-ends with one resolved alert and one new active one. Different APIs are written in
-parallel (`WRITE_CONCURRENCY`, default 10).
-
-## AI alerts
-
-Every alert has an `alert` field, for example:
+`POST /monitor` response:
 
 ```json
 {
-  "message": "AppointmentAPI is returning 500 errors with no records and taking 5.5s to respond, so appointments likely can't be loaded.",
-  "likely_cause": "Outage or internal error at the appointment provider",
-  "suggested_action": "Check the provider status page and their error reporting",
-  "source": "ai",
-  "model": "gemini-3.8-flash"
+  "received": 9,
+  "healthy": 2,
+  "anomalies": [{ "api_name": "AppointmentAPI", "severity": "critical", "issues": [...], "alert_id": "..." }],
+  "rejected": [{ "index": 8, "reason": "api_name is missing" }],
+  "stored": { "opened": 6, "updated": 0, "resolved": 0 }
 }
 ```
-
-How it gets there:
-
-1. When an anomaly is saved, it gets rule-based template text straight away, so every
-   alert is readable even before (or without) the LLM.
-2. Its id is put on an in-process queue and `/monitor` responds without waiting.
-3. The queue sends anomalies to Gemini **in groups** (`AI_BATCH_SIZE`, default 10 per
-   request, `AI_CONCURRENCY` requests at a time). A batch of 50 failing APIs is 5 requests,
-   not 50, which keeps us within free-tier rate limits.
-4. Gemini answers using a JSON schema (`responseJsonSchema`), so the reply is parsed
-   rather than scraped from free text.
-5. The text is only regenerated when the *kind* of problem changes (severity or issue types),
-   not every time the same failure repeats.
-
-Failure handling: timeouts, 429s and 5xx are retried with exponential backoff
-(`GEMINI_MAX_RETRIES`). If Gemini still fails or returns nothing for an anomaly, the template
-text stays. If an anomaly changes while Gemini is working, the late reply is thrown away
-instead of overwriting newer data. Alerts that never got AI text are queued again on startup.
-
-Only API names and metrics are sent to Gemini, never response payloads, so no patient data
-leaves the system.
-
-Without `GEMINI_API_KEY`, everything works the same with template text only.
-
-The prompt is in [`server/src/ai/prompt.js`](server/src/ai/prompt.js).
 
 ## Detection rules
 
@@ -135,16 +142,108 @@ The prompt is in [`server/src/ai/prompt.js`](server/src/ai/prompt.js).
 | HIGH_LATENCY | response time >= `SLOW_RESPONSE_MS` (2000) | medium |
 | ZERO_RECORDS | `records_returned` is 0 | medium |
 | MISSING_RECORDS | `records_returned` not sent | medium |
-| INVALID_DATA | fields with wrong types or impossible values | high |
+| INVALID_DATA | wrong types or impossible values (negative time, records as a string...) | high |
 
-An alert's severity is the highest of its issues. Entries with no `api_name` are rejected
-and listed in the response.
+Each response with problems becomes one anomaly listing all its issues. Its severity is the
+highest issue's. Entries without `api_name` are rejected, since we can't tell which API they
+belong to.
 
-## Tests
+## How alerts are stored
 
-```bash
-npm test
+Each API has at most **one active alert** (enforced by a partial unique index on
+`api_name` where `status: active`).
+
+- API fails, no active alert: a new alert is opened
+- API fails again: the same alert is updated (`occurrences`, `last_seen`, latest issues and metrics)
+- API reports a healthy response: its alert is resolved automatically (`resolved_by: auto`)
+- Alerts can also be resolved from the dashboard (`resolved_by: manual`)
+
+Inside a batch, entries for the same API are processed in order, so fail → recover → fail
+ends with one resolved alert and one new active one. Different APIs are written in parallel,
+`WRITE_CONCURRENCY` at a time.
+
+## AI alerts
+
+Each alert has an `alert` field, for example:
+
+```json
+{
+  "message": "AppointmentAPI is returning 500 errors with no records and taking 5.5s to respond, so appointments likely can't be loaded.",
+  "likely_cause": "Outage or internal error at the appointment provider",
+  "suggested_action": "Check the provider status page and their error reporting",
+  "source": "ai",
+  "model": "gemini-3.8-flash"
+}
 ```
 
-Tests spin up an in-memory MongoDB (`mongodb-memory-server`), so no database setup is
-needed. The first run downloads a MongoDB binary, which takes a moment.
+1. When an anomaly is saved it gets rule-based text right away, so every alert is readable
+   even before (or without) the LLM.
+2. Its id goes on an in-process queue, and `/monitor` responds without waiting for Gemini.
+3. The queue sends anomalies to Gemini **in groups** (`AI_BATCH_SIZE` per request,
+   `AI_CONCURRENCY` requests at a time). 50 failing APIs means 5 requests, not 50.
+4. Gemini replies against a JSON schema (`responseJsonSchema`), so the reply is parsed,
+   not scraped from free text.
+5. AI text is only regenerated when the *kind* of problem changes (severity or issue types),
+   not on every repeat of the same failure.
+
+When things go wrong:
+
+- Timeouts, 429s and 5xx are retried with exponential backoff (`GEMINI_MAX_RETRIES`).
+- If Gemini still fails, or skips an anomaly in its reply, the rule-based text stays.
+- If an anomaly changes while Gemini is working, the late reply is discarded.
+- Alerts that never got AI text are queued again when the server starts.
+
+Only API names and metrics are sent to Gemini, never response payloads, so no patient data
+leaves the system.
+
+The prompt is in [`server/src/ai/prompt.js`](server/src/ai/prompt.js).
+
+## Email reports (optional)
+
+Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `REPORT_EMAIL_TO` in `.env`.
+After that:
+
+- the **Email report** button (or `POST /alerts/report`) sends a digest of active alerts
+- `REPORT_INTERVAL_MINUTES=60` sends it every hour; nothing is sent when there are no active alerts
+
+For Gmail, use `smtp.gmail.com`, port `465` and an
+[app password](https://support.google.com/accounts/answer/185833).
+
+## Configuration
+
+All settings live in `server/.env`. See [`server/.env.example`](server/.env.example).
+
+| Variable | Default | |
+|----------|---------|---|
+| `PORT` | 4000 | |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/api_monitor` | |
+| `SLOW_RESPONSE_MS` / `CRITICAL_RESPONSE_MS` | 2000 / 5000 | latency limits |
+| `MAX_BATCH_SIZE` | 500 | entries per `/monitor` request |
+| `WRITE_CONCURRENCY` | 10 | APIs written to the db in parallel |
+| `GEMINI_API_KEY` | – | empty = rule-based text only |
+| `GEMINI_MODEL` | `gemini-3.8-flash` | |
+| `GEMINI_TIMEOUT_MS` / `GEMINI_MAX_RETRIES` | 15000 / 2 | |
+| `AI_BATCH_SIZE` / `AI_CONCURRENCY` | 10 / 2 | anomalies per Gemini request, parallel requests |
+| `SMTP_*`, `REPORT_EMAIL_*` | – | email reports |
+| `REPORT_INTERVAL_MINUTES` | 0 | 0 = only when asked |
+| `LOG_LEVEL` | info | |
+
+## Logging
+
+Winston logs to the console and to `server/logs/`:
+
+- `app.log`: everything, as JSON, rotated at 5 MB
+- `error.log`: errors only
+
+Every HTTP request is logged with its status and duration, and every batch is logged with
+its counts. Gemini retries and failures are logged as well.
+
+## Error handling
+
+- Malformed JSON → `400`
+- Empty or oversized batch → `400` / `413`
+- Bad query params → `400`
+- Unknown alert → `404`
+- Bad individual entries don't fail the batch: they're listed in `rejected` or flagged as `INVALID_DATA`
+- Unexpected errors are logged with a stack trace, and the client gets a generic `500`
+- The server exits with a clear message if it can't reach MongoDB on startup, and shuts down cleanly on SIGINT/SIGTERM

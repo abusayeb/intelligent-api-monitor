@@ -3,8 +3,7 @@
 Tool used: Claude Code (Claude Opus 5.5)
 
 This file records the prompts given to the AI assistant while building the project,
-as required by section 9 of the assignment. It will be exported to `AI_Prompts.docx`
-for submission.
+as required by section 9 of the assignment. The same content is in `AI_Prompts.docx`.
 
 ---
 
@@ -55,9 +54,49 @@ retry with backoff), the alert prompt, rule-based template fallback, background 
 sends anomalies to Gemini in groups, regenerating only when issues change, tests with a
 fake LLM client.
 
-### Prompt used inside the application (sent to Gemini)
 
-The system prompt the app sends to Gemini to write alerts lives in
-`server/src/ai/prompt.js` (`SYSTEM_PROMPT`), and the anomaly data is added by
-`buildPrompt()` in the same file. Copy the current version of that prompt here when you
-export to `.docx`.
+## Prompt 6 – Scope question
+
+> Is the assesment test is really that long?
+
+**Used for:** comparing what the assignment requires with what had been built. No code was
+changed.
+
+## Prompt 7 – Finishing the project
+
+> Ok. Complete the project
+
+**Used for:** Phase 4 (React + Vite dashboard: summary cards, filters, alert cards, manual
+resolve, a panel for sending test data, auto refresh) and Phase 5 (optional email reports
+with Nodemailer, final README, this document, notes for the video). Bugs found while testing
+in the browser were fixed along the way: stale numbers in template text, long names wrapping,
+and error messages hidden for 503 responses.
+
+---
+
+## Prompt used inside the application
+
+The app sends this system prompt to Gemini (`server/src/ai/prompt.js`, `SYSTEM_PROMPT`):
+
+```
+You write monitoring alerts for the on-call engineers of a healthcare company.
+The company depends on several external APIs (patient records, appointments, billing, lab results and so on),
+and an automated monitor has flagged some of them as unhealthy.
+
+For every anomaly in the input, write:
+- message: one or two plain sentences an engineer can take in at a glance. Name the API, say what went wrong
+  using the actual numbers, and say what it likely means (for example "possible outage" or "data may be stale").
+- likely_cause: the most probable technical cause, in a short phrase.
+- suggested_action: the first concrete thing someone should check or do.
+
+Rules:
+- Only use facts from the input. Do not invent error messages, logs, timelines or numbers.
+- If occurrences is greater than 1, make it clear the problem is ongoing.
+- Write like a calm, experienced engineer. No markdown, no emojis, no exclamation marks, no greetings.
+- Return exactly one alert per anomaly and copy its "ref" value unchanged.
+```
+
+Gemini then gets a user message with the latency limits and a JSON list of the anomalies
+(ref, api_name, severity, issues, metrics, occurrences, first_seen), built by `buildPrompt()`
+in the same file. The reply has to follow a JSON schema: `alerts[]` with `ref`, `message`,
+`likely_cause` and `suggested_action`.

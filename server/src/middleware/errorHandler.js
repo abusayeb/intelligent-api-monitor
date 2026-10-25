@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const HttpError = require('../utils/httpError');
 
 function notFound(req, res) {
   res.status(404).json({ error: `Route not found: ${req.method} ${req.originalUrl}` });
@@ -15,11 +16,13 @@ function errorHandler(err, req, res, next) {
   }
 
   const status = err.status || 500;
-  if (status >= 500) {
+  // our own HttpErrors carry messages meant for the client, anything else is a bug
+  const expose = err instanceof HttpError || status < 500;
+  if (!expose) {
     logger.error(err);
   }
 
-  const body = { error: status >= 500 ? 'Internal server error' : err.message };
+  const body = { error: expose ? err.message : 'Internal server error' };
   if (err.details) body.details = err.details;
 
   res.status(status).json(body);

@@ -11,14 +11,17 @@ const queue = new AlertQueue((ids) => enrichWithAi(ids), {
   concurrency: config.gemini.concurrency,
 });
 
-// Called after a batch is saved. Anomalies that are new, or whose set of issues
-// changed, get template text right away and are queued for Gemini.
+// Called after a batch is saved. Template text is cheap, so it's rebuilt every
+// time to keep the numbers current. AI text is only replaced when the kind of
+// problem changes (issue_key), otherwise we'd call Gemini on every repeat failure.
 async function refreshAlerts(docs) {
   const latest = new Map();
   for (const doc of docs) latest.set(doc.id, doc);
 
   const stale = [...latest.values()].filter(
-    (doc) => doc.status === 'active' && doc.alert?.issue_key !== doc.issue_key
+    (doc) =>
+      doc.status === 'active' &&
+      (doc.alert?.issue_key !== doc.issue_key || doc.alert?.source !== 'ai')
   );
   if (!stale.length) return;
 

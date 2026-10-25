@@ -2,6 +2,7 @@ const { isValidObjectId } = require('mongoose');
 const Anomaly = require('../models/Anomaly');
 const HttpError = require('../utils/httpError');
 const { SEVERITY_RANK } = require('../services/detector');
+const { isEmailEnabled, sendReport } = require('../services/emailReport');
 
 const STATUSES = ['active', 'resolved', 'all'];
 
@@ -92,4 +93,12 @@ async function resolveAlert(req, res) {
   res.json(alert);
 }
 
-module.exports = { listAlerts, getSummary, getAlert, resolveAlert };
+// POST /alerts/report - email a digest of active alerts now
+async function emailReport(req, res) {
+  if (!isEmailEnabled()) {
+    throw new HttpError(503, 'Email is not configured. Set SMTP_HOST and REPORT_EMAIL_TO in server/.env');
+  }
+  res.json(await sendReport());
+}
+
+module.exports = { listAlerts, getSummary, getAlert, resolveAlert, emailReport };

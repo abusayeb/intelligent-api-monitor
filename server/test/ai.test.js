@@ -44,18 +44,31 @@ test('stored anomalies get template text when no key is set', async () => {
   }
 });
 
-test('alert text is only rewritten when the issues change', async () => {
+test('AI text is kept on repeats and replaced when the issues change', async () => {
   await request(app).post('/monitor').send(appointmentDown);
   const first = await Anomaly.findOne();
+  await Anomaly.updateOne({ _id: first._id }, { 'alert.source': 'ai', 'alert.message': 'AI text' });
 
+  // same kind of failure again: keep the AI text
   await request(app).post('/monitor').send(appointmentDown);
   const same = await Anomaly.findOne();
-  assert.strictEqual(same.alert.generated_at.getTime(), first.alert.generated_at.getTime());
+  assert.strictEqual(same.alert.message, 'AI text');
+  assert.strictEqual(same.occurrences, 2);
 
+  // now it's slow too, so the old text no longer describes it
   await request(app).post('/monitor').send({ ...appointmentDown, response_time_ms: 6000 });
   const changed = await Anomaly.findOne();
   assert.notStrictEqual(changed.issue_key, first.issue_key);
+  assert.strictEqual(changed.alert.source, 'template');
   assert.match(changed.alert.message, /6000ms/);
+});
+
+test('template text keeps the numbers current', async () => {
+  await request(app).post('/monitor').send({ ...appointmentDown, response_time_ms: 5500 });
+  await request(app).post('/monitor').send({ ...appointmentDown, response_time_ms: 5200 });
+
+  const doc = await Anomaly.findOne();
+  assert.match(doc.alert.message, /5200ms/);
 });
 
 test('enrichWithAi saves what the model returns', async () => {
