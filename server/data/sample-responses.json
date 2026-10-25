@@ -1,0 +1,54 @@
+[
+  {
+    "api_name": "PatientDataAPI",
+    "response_time_ms": 1200,
+    "status_code": 200,
+    "records_returned": 50
+  },
+  {
+    "api_name": "AppointmentAPI",
+    "response_time_ms": 5500,
+    "status_code": 500,
+    "records_returned": 0
+  },
+  {
+    "api_name": "BillingAPI",
+    "response_time_ms": 3100,
+    "status_code": 200,
+    "records_returned": 18
+  },
+  {
+    "api_name": "LabResultsAPI",
+    "response_time_ms": 640,
+    "status_code": 200,
+    "records_returned": 0
+  },
+  {
+    "api_name": "InsuranceAPI",
+    "response_time_ms": 8000,
+    "status_code": 503
+  },
+  {
+    "api_name": "PharmacyAPI",
+    "response_time_ms": 450,
+    "status_code": 200,
+    "records_returned": 120
+  },
+  {
+    "api_name": "DoctorScheduleAPI",
+    "response_time_ms": 900,
+    "status_code": 404,
+    "records_returned": 0
+  },
+  {
+    "api_name": "InventoryAPI",
+    "response_time_ms": -20,
+    "status_code": 200,
+    "records_returned": "34"
+  },
+  {
+    "response_time_ms": 300,
+    "status_code": 200,
+    "records_returned": 10
+  }
+]
