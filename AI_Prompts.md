@@ -22,3 +22,26 @@ for submission.
 
 **Used for:** project structure, phase plan, Phase 1 code (Express setup, logging,
 input normalization, anomaly detection rules, `POST /monitor`, static JSON runner, tests).
+
+## Prompt 2 – Moving the project
+
+> Move this session to a folder I choose first so I can push the code.
+
+**Used for:** moving the project out of the temporary workspace into `Documents/AI-Automation-Task`.
+
+## Prompt 3 – Pushing to GitHub
+
+> i want to push this to my github account abusayeb
+
+**Used for:** getting the `gh repo create` command. The push itself was done manually.
+
+## Prompt 4 – Phase 2
+
+> ok done
+
+(Reply after pushing Phase 1, asking the assistant to go on to Phase 2.)
+
+**Used for:** Phase 2 code: MongoDB connection, Anomaly model (one active alert per API,
+auto-resolve on recovery), persisting batch results with limited concurrency,
+`GET /alerts`, `/alerts/summary`, `/alerts/:id`, `PATCH /alerts/:id/resolve`, tests with
+an in-memory MongoDB.
