@@ -17,4 +17,13 @@ module.exports = {
     slowMs: toNumber(process.env.SLOW_RESPONSE_MS, 2000),
     criticalMs: toNumber(process.env.CRITICAL_RESPONSE_MS, 5000),
   },
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+    timeoutMs: toNumber(process.env.GEMINI_TIMEOUT_MS, 15000),
+    maxRetries: toNumber(process.env.GEMINI_MAX_RETRIES, 2),
+    // anomalies sent per request, and how many requests can be in flight
+    batchSize: toNumber(process.env.AI_BATCH_SIZE, 10),
+    concurrency: toNumber(process.env.AI_CONCURRENCY, 2),
+  },
 };

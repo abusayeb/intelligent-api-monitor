@@ -9,6 +9,7 @@ async function recordAnomaly(anomaly) {
       severity: anomaly.severity,
       severity_rank: SEVERITY_RANK[anomaly.severity],
       issues: anomaly.issues,
+      issue_key: anomaly.issue_key,
       metrics: anomaly.metrics,
       last_seen: anomaly.detected_at,
     },

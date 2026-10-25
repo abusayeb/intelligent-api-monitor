@@ -45,3 +45,19 @@ input normalization, anomaly detection rules, `POST /monitor`, static JSON runne
 auto-resolve on recovery), persisting batch results with limited concurrency,
 `GET /alerts`, `/alerts/summary`, `/alerts/:id`, `PATCH /alerts/:id/resolve`, tests with
 an in-memory MongoDB.
+
+## Prompt 5 – Phase 3
+
+> I pushed Phase 2. Start Phase 3.
+
+**Used for:** Phase 3 code: Gemini client (`@google/genai`, structured JSON output, timeout,
+retry with backoff), the alert prompt, rule-based template fallback, background queue that
+sends anomalies to Gemini in groups, regenerating only when issues change, tests with a
+fake LLM client.
+
+### Prompt used inside the application (sent to Gemini)
+
+The system prompt the app sends to Gemini to write alerts lives in
+`server/src/ai/prompt.js` (`SYSTEM_PROMPT`), and the anomaly data is added by
+`buildPrompt()` in the same file. Copy the current version of that prompt here when you
+export to `.docx`.

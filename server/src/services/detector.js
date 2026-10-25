@@ -69,10 +69,14 @@ function detect(check) {
   const found = issues.filter(Boolean);
   if (!found.length) return null;
 
+  const severity = highestSeverity(found);
+
   return {
     api_name: check.api_name,
-    severity: highestSeverity(found),
+    severity,
     issues: found,
+    // changes only when the kind of problem changes, used to decide when to rewrite the alert text
+    issue_key: `${severity}:${found.map((i) => i.type).sort().join(',')}`,
     metrics: {
       response_time_ms: check.response_time_ms ?? null,
       status_code: check.status_code ?? null,

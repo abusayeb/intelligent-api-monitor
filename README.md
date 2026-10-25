@@ -1,9 +1,10 @@
 # API Monitor
 
 Watches responses from external APIs, flags anything that looks wrong (slow responses,
-failed requests, missing or empty data), stores it in MongoDB and serves it as alerts.
+failed requests, missing or empty data), stores it in MongoDB and uses Gemini to turn it
+into alerts people can read.
 
-> Work in progress. AI generated alert messages and the dashboard are still being added.
+> Work in progress. The dashboard is still being added.
 
 ## Running the backend
 
@@ -11,7 +12,7 @@ Requires Node 18+ and MongoDB (local install, Docker, or a free Atlas cluster).
 
 ```bash
 cd server
-cp .env.example .env      # set MONGODB_URI if you're not using local mongo
+cp .env.example .env      # set MONGODB_URI and GEMINI_API_KEY
 npm install
 npm run dev
 ```
@@ -84,6 +85,45 @@ Each API has at most one **active** alert at a time (enforced by a partial uniqu
 Inside a batch, entries for the same API are processed in order, so fail → recover → fail
 ends with one resolved alert and one new active one. Different APIs are written in
 parallel (`WRITE_CONCURRENCY`, default 10).
+
+## AI alerts
+
+Every alert has an `alert` field, for example:
+
+```json
+{
+  "message": "AppointmentAPI is returning 500 errors with no records and taking 5.5s to respond, so appointments likely can't be loaded.",
+  "likely_cause": "Outage or internal error at the appointment provider",
+  "suggested_action": "Check the provider status page and their error reporting",
+  "source": "ai",
+  "model": "gemini-3.8-flash"
+}
+```
+
+How it gets there:
+
+1. When an anomaly is saved, it gets rule-based template text straight away, so every
+   alert is readable even before (or without) the LLM.
+2. Its id is put on an in-process queue and `/monitor` responds without waiting.
+3. The queue sends anomalies to Gemini **in groups** (`AI_BATCH_SIZE`, default 10 per
+   request, `AI_CONCURRENCY` requests at a time). A batch of 50 failing APIs is 5 requests,
+   not 50, which keeps us within free-tier rate limits.
+4. Gemini answers using a JSON schema (`responseJsonSchema`), so the reply is parsed
+   rather than scraped from free text.
+5. The text is only regenerated when the *kind* of problem changes (severity or issue types),
+   not every time the same failure repeats.
+
+Failure handling: timeouts, 429s and 5xx are retried with exponential backoff
+(`GEMINI_MAX_RETRIES`). If Gemini still fails or returns nothing for an anomaly, the template
+text stays. If an anomaly changes while Gemini is working, the late reply is thrown away
+instead of overwriting newer data. Alerts that never got AI text are queued again on startup.
+
+Only API names and metrics are sent to Gemini, never response payloads, so no patient data
+leaves the system.
+
+Without `GEMINI_API_KEY`, everything works the same with template text only.
+
+The prompt is in [`server/src/ai/prompt.js`](server/src/ai/prompt.js).
 
 ## Detection rules
 

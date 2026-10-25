@@ -1,4 +1,5 @@
 process.env.NODE_ENV = 'test';
+process.env.GEMINI_API_KEY = ''; // never call the real API from tests
 
 const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert');

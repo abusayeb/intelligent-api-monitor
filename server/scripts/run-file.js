@@ -6,6 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { connectDb, disconnectDb } = require('../src/db');
 const { processBatch } = require('../src/services/monitorService');
+const { alertQueue } = require('../src/ai');
+const Anomaly = require('../src/models/Anomaly');
 
 async function main() {
   const fileArg = process.argv[2] || 'data/sample-responses.json';
@@ -23,6 +25,11 @@ async function main() {
 
   await connectDb();
   const result = await processBatch(entries);
+  // wait for Gemini to finish before reading the alerts back
+  await alertQueue.onIdle();
+
+  const ids = result.anomalies.map((a) => a.alert_id);
+  const alerts = await Anomaly.find({ _id: { $in: ids }, status: 'active' }).sort({ severity_rank: -1 });
   await disconnectDb();
 
   const { opened, updated, resolved } = result.stored;
@@ -30,9 +37,11 @@ async function main() {
     `${result.anomalies.length} anomalies, ${result.rejected.length} rejected`);
   console.log(`Alerts: ${opened} opened, ${updated} updated, ${resolved} resolved\n`);
 
-  for (const a of result.anomalies) {
-    console.log(`[${a.severity.toUpperCase()}] ${a.api_name}`);
-    a.issues.forEach((i) => console.log(`   - ${i.type}: ${i.message}`));
+  for (const a of alerts) {
+    console.log(`[${a.severity.toUpperCase()}] ${a.api_name}  (${a.alert?.source || 'no'} alert)`);
+    console.log(`   ${a.alert?.message}`);
+    console.log(`   Cause:  ${a.alert?.likely_cause}`);
+    console.log(`   Action: ${a.alert?.suggested_action}\n`);
   }
   for (const r of result.rejected) {
     console.log(`[REJECTED] entry #${r.index}: ${r.reason}`);

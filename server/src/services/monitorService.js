@@ -2,12 +2,15 @@ const config = require('../config');
 const { normalize } = require('./normalizer');
 const { detect } = require('./detector');
 const { recordAnomaly, resolveApi } = require('./anomalyStore');
+const { refreshAlerts } = require('../ai');
 const mapWithLimit = require('../utils/mapWithLimit');
 const logger = require('../utils/logger');
 
 // Writes results to the db. Events for the same API run in order (so
 // fail -> recover -> fail ends up active), different APIs run in parallel.
+// Returns the saved anomaly documents.
 async function persist(events, stored) {
+  const docs = [];
   const byApi = new Map();
   for (const event of events) {
     if (!byApi.has(event.api_name)) byApi.set(event.api_name, []);
@@ -18,6 +21,7 @@ async function persist(events, stored) {
     for (const event of apiEvents) {
       if (event.anomaly) {
         const doc = await recordAnomaly(event.anomaly);
+        docs.push(doc);
         event.anomaly.alert_id = doc.id;
         if (doc.occurrences === 1) stored.opened++;
         else stored.updated++;
@@ -26,6 +30,8 @@ async function persist(events, stored) {
       }
     }
   });
+
+  return docs;
 }
 
 async function processBatch(entries) {
@@ -54,7 +60,8 @@ async function processBatch(entries) {
     events.push({ api_name: check.api_name, checked_at: check.checked_at, anomaly });
   });
 
-  await persist(events, summary.stored);
+  const docs = await persist(events, summary.stored);
+  await refreshAlerts(docs);
 
   logger.info('Batch processed', {
     received: summary.received,

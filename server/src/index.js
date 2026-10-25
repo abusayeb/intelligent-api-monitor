@@ -2,6 +2,7 @@ const app = require('./app');
 const config = require('./config');
 const logger = require('./utils/logger');
 const { connectDb, disconnectDb } = require('./db');
+const { requeuePending } = require('./ai');
 
 let server;
 
@@ -16,6 +17,8 @@ async function start() {
   server = app.listen(config.port, () => {
     logger.info(`Server listening on port ${config.port} (${config.env})`);
   });
+
+  requeuePending().catch((err) => logger.error(`Could not requeue pending alerts: ${err.message}`));
 }
 
 function shutdown(signal) {
