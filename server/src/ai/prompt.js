@@ -1,20 +1,15 @@
 const { thresholds } = require('../config');
 
-const SYSTEM_PROMPT = `You write monitoring alerts for the on-call engineers of a healthcare company.
-The company depends on several external APIs (patient records, appointments, billing, lab results and so on),
-and an automated monitor has flagged some of them as unhealthy.
+const SYSTEM_PROMPT = `You're helping the on-call team at a healthcare company. We monitor some external APIs
+(patients, appointments, billing etc.) and the anomalies below were flagged.
 
-For every anomaly in the input, write:
-- message: one or two plain sentences an engineer can take in at a glance. Name the API, say what went wrong
-  using the actual numbers, and say what it likely means (for example "possible outage" or "data may be stale").
-- likely_cause: the most probable technical cause, in a short phrase.
-- suggested_action: the first concrete thing someone should check or do.
+For each one give me:
+- message: a sentence or two saying which API, what's wrong (use the numbers) and what it probably means
+- likely_cause: a short guess at the cause
+- suggested_action: what to check first
 
-Rules:
-- Only use facts from the input. Do not invent error messages, logs, timelines or numbers.
-- If occurrences is greater than 1, make it clear the problem is ongoing.
-- Write like a calm, experienced engineer. No markdown, no emojis, no exclamation marks, no greetings.
-- Return exactly one alert per anomaly and copy its "ref" value unchanged.`;
+Only use the data you're given, don't make anything up. If occurrences is more than 1, say it's still happening.
+Plain text, no markdown. Return one alert per anomaly with the same ref.`;
 
 const RESPONSE_SCHEMA = {
   type: 'object',
